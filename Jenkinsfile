@@ -1,49 +1,37 @@
-@Library(['piper-lib']) _
-
 pipeline {
     agent any
-    
+
     environment {
-        DOCKER_IMAGE = 'akramulislam/test-image'
-        DOCKER_TAG = "${env.BUILD_NUMBER}"
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                git branch: 'main',
+                    credentialsId: 'github-credentials',
+                    url: 'https://github.com/akramewu/DockerTest.git'
             }
         }
-        
-        stage('Build and Push Docker Image') {
+        stage('Build Container Image') {
             steps {
                 script {
-                    def dockerfilePath = './Dockerfile'  // Adjust if your Dockerfile is in a different location
-                    def imageName = "${DOCKER_IMAGE}"
-                    def imageTag = "${DOCKER_TAG}"
-                    
-                    withCredentials([usernamePassword(credentialsId: 'docker-akramul-personal', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        // Create a temporary Docker config.json file
-                        sh """
-                            echo '{"auths":{"https://index.docker.io/v1/":{"auth":"'"\$(echo -n "${DOCKER_USER}:${DOCKER_PASS}" | base64)"'"}}}' > ${WORKSPACE}/docker-config.json
-                        """
-                        
-                        kanikoExecute(
-                            script: this,
-                            dockerfilePath: dockerfilePath,
-                            buildOptions: ['--destination=' + imageName + ':' + imageTag],
-                            containerImageNameAndTag: imageName + ':' + imageTag,
-                            dockerConfigJsonPath: "${WORKSPACE}/docker-config.json"
-                        )
-                        
-                        // Clean up the temporary Docker config file
-                        sh "rm ${WORKSPACE}/docker-config.json"
-                    }
+                    sh 'sudo /usr/bin/podman build -t dockertest:${BUILD_NUMBER} .'
+                }
+            }
+        }
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    sh 'echo $DOCKERHUB_CREDENTIALS_PSW | sudo /usr/bin/podman login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin docker.io'
+                    sh 'sudo /usr/bin/podman tag dockertest:${BUILD_NUMBER} $DOCKERHUB_CREDENTIALS_USR/dockertest:${BUILD_NUMBER}'
+                    sh 'sudo /usr/bin/podman push $DOCKERHUB_CREDENTIALS_USR/dockertest:${BUILD_NUMBER}'
+                    sh 'sudo /usr/bin/podman logout docker.io'
                 }
             }
         }
     }
-    
+
     post {
         always {
             cleanWs()
